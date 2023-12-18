@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: [-I/home/parallels/Documents/codes/xv6-labs-2020/]
