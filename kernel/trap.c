@@ -50,7 +50,9 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  uint64 scause = r_scause();
+  uint64 va = r_stval();
+  if(scause == 8){
     // system call
 
     if(p->killed)
@@ -65,7 +67,29 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } else if (scause == 13 || scause == 15) {
+    if (va < PGSIZE || va >= p->sz) {
+      printf("va %p is out of bound (%p, %p)\n", va, PGSIZE, p->sz);
+      p->killed = 1;
+      goto ret;
+    }
+    
+    // page fault for load/store
+    void *mem = kalloc();
+    uint64 start = PGROUNDDOWN(va);
+    if(mem == 0){
+      printf("in usertrap, kallloc error\n");
+      p->killed = 1;
+      goto ret;
+    }
+    memset(mem, 0, PGSIZE);
+    if(mappages(p->pagetable, start, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+      kfree(mem);
+      p->killed = 1;
+      goto ret;
+    }
+  } 
+  else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
@@ -80,7 +104,8 @@ usertrap(void)
   if(which_dev == 2)
     yield();
 
-  usertrapret();
+  ret:  
+    usertrapret();
 }
 
 //
