@@ -29,6 +29,43 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+
+void 
+savecontext(struct proc *p)
+{
+  p->handler.ra = p->trapframe->ra;
+  p->handler.sp = p->trapframe->sp;
+  p->handler.gp = p->trapframe->gp;
+  p->handler.tp = p->trapframe->tp;
+  p->handler.t0 = p->trapframe->t0;
+  p->handler.t1 = p->trapframe->t1;
+  p->handler.t2 = p->trapframe->t2;
+  p->handler.s0 = p->trapframe->s0;
+  p->handler.s1 = p->trapframe->s1;
+  p->handler.a0 = p->trapframe->a0;
+  p->handler.a1 = p->trapframe->a1;
+  p->handler.a2 = p->trapframe->a2;
+  p->handler.a3 = p->trapframe->a3;
+  p->handler.a4 = p->trapframe->a4;
+  p->handler.a5 = p->trapframe->a5;
+  p->handler.a6 = p->trapframe->a6;
+  p->handler.a7 = p->trapframe->a7;
+  p->handler.s2 = p->trapframe->s2;
+  p->handler.s3 = p->trapframe->s3;
+  p->handler.s4 = p->trapframe->s4;
+  p->handler.s5 = p->trapframe->s5;
+  p->handler.s6 = p->trapframe->s6;
+  p->handler.s7 = p->trapframe->s7;
+  p->handler.s8 = p->trapframe->s8;
+  p->handler.s9 = p->trapframe->s9;
+  p->handler.s10 = p->trapframe->s10;
+  p->handler.s11 = p->trapframe->s11;
+  p->handler.t3 = p->trapframe->t3;
+  p->handler.t4 = p->trapframe->t4;
+  p->handler.t5 = p->trapframe->t5;
+  p->handler.t6 = p->trapframe->t6;
+}
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -77,8 +114,21 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    // 是时钟中断的话，只有执行完一条指令才会响应这个中断，所以epc就是下一条执行的指令，不需要修改
+    if (p->handler.internal > 0) {
+      if (p->handler.left <= 1 && p->handler.finished == 1) {
+        p->handler.opc = p->trapframe->epc;
+        p->handler.finished = 0;
+        p->trapframe->epc = (uint64)(p->handler.func);
+        p->handler.left = p->handler.internal;
+        savecontext(p);
+      } else {
+        p->handler.left--;
+      }
+    }
     yield();
+  }
 
   usertrapret();
 }

@@ -280,6 +280,25 @@ intr_get()
 }
 
 static inline uint64
+r_stack(uint64 fp, uint64 offset)
+{
+  uint64 r;
+  asm volatile("add a1, %1, %2\n\t"
+                 "ld %0, 0(a1)"
+                 : "=r" (r)
+                 : "r" (fp), "r" (offset));
+  return r;
+}
+
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
+static inline uint64
 r_sp()
 {
   uint64 x;
