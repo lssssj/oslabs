@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -156,8 +158,10 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
+    if(*pte & PTE_V) {
+      printf("error for pa=%p, pa2=%p\n", PTE2PA(*pte), pa);
       panic("remap");
+    }
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -183,9 +187,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     if((pte = walk(pagetable, a, 0)) == 0)
       continue;
       // panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+    if((*pte & PTE_V) == 0) {
       continue;
-      //panic("uvmunmap: not mapped");
+      // printf("%p %p %p %d\n", a, pte, PTE2PA(*pte), PTE_FLAGS(*pte));
+      // panic("uvmunmap: not mapped");
+    }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -352,6 +358,28 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+// Return pa0 on success, -1 on error.
+uint64
+pagelazyalloc(struct proc *p, pagetable_t pagetable, uint64 va, uint64 len)
+{
+  if (va < p->trapframe->sp || va > p->sz) {
+    return -1;
+  }
+  if (va + len < p->trapframe->sp || va +len > p->sz) {
+    return -1;
+  }
+  void* pa0 = kalloc();
+  if (pa0 == 0) {
+    return -1;
+  }
+  memset(pa0, 0, PGSIZE);
+  if (mappages(pagetable, va, PGSIZE, (uint64)pa0, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
+    kfree(pa0);
+    return -1;
+  }
+  return (uint64)pa0;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -359,12 +387,16 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  struct proc* p = myproc();
+  
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if(pa0 == 0) {
+      if ((pa0 = pagelazyalloc(p, pagetable, dstva, len)) == -1) {
+        return -1;
+      }
+    }
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -384,12 +416,16 @@ int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  struct proc* p = myproc();
+  
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if(pa0 == 0) {
+      if ((pa0 = pagelazyalloc(p, pagetable, srcva, len)) == -1) {
+        return -1;
+      }
+    }
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
@@ -411,12 +447,16 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
   uint64 n, va0, pa0;
   int got_null = 0;
-
+  struct proc* p = myproc();
+  
   while(got_null == 0 && max > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if(pa0 == 0) {
+      if ((pa0 = pagelazyalloc(p, pagetable, srcva, max)) == -1) {
+        return -1;
+      }
+    }
     n = PGSIZE - (srcva - va0);
     if(n > max)
       n = max;

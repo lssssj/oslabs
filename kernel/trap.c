@@ -68,25 +68,9 @@ usertrap(void)
 
     syscall();
   } else if (scause == 13 || scause == 15) {
-    if (va < PGSIZE || va >= p->sz) {
-      printf("va %p is out of bound (%p, %p)\n", va, PGSIZE, p->sz);
+    if (pagelazyalloc(p, p->pagetable, PGROUNDDOWN(va), 0) == -1) {
       p->killed = 1;
-      goto ret;
-    }
-    
-    // page fault for load/store
-    void *mem = kalloc();
-    uint64 start = PGROUNDDOWN(va);
-    if(mem == 0){
-      printf("in usertrap, kallloc error\n");
-      p->killed = 1;
-      goto ret;
-    }
-    memset(mem, 0, PGSIZE);
-    if(mappages(p->pagetable, start, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
-      kfree(mem);
-      p->killed = 1;
-      goto ret;
+      //goto ret;
     }
   } 
   else if((which_dev = devintr()) != 0){
@@ -104,8 +88,8 @@ usertrap(void)
   if(which_dev == 2)
     yield();
 
-  ret:  
-    usertrapret();
+  //ret:  
+  usertrapret();
 }
 
 //
